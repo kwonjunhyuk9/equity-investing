@@ -2,13 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from loguru import logger
 
 
 WEIGHT_COLUMNS = [
-    "average_uniqueness_weight",
     "return_attribution_weight",
-    "time_decay_weight",
     "sample_weight",
 ]
 
@@ -41,29 +38,6 @@ def count_concurrent_events(
     return count.loc[molecule[0]:t1[molecule].max()]
 
 
-def compute_average_uniqueness_weights(
-    t1: pd.Series,
-    num_co_events: pd.Series,
-    molecule: pd.Index,
-) -> pd.Series:
-    """Compute average uniqueness weights for a slice of events.
-
-    Args:
-        t1: Event end times indexed by start time.
-        num_co_events: Concurrency counts over the price bars.
-        molecule: Slice of event start times to evaluate.
-
-    Returns:
-        A series of average uniqueness weights.
-    """
-    wght = pd.Series(index=molecule)
-
-    for t_in, t_out in t1.loc[wght.index].items():
-        wght.loc[t_in] = (1. / num_co_events.loc[t_in:t_out]).mean()
-
-    return wght
-
-
 def compute_return_attribution_weights(
     t1: pd.Series,
     num_co_events: pd.Series,
@@ -90,43 +64,18 @@ def compute_return_attribution_weights(
     return wght.abs()
 
 
-def apply_time_decay(t_w: pd.Series, clf_last_w: float = 1.0) -> pd.Series:
-    """Apply piecewise-linear decay to sample weights.
-
-    Args:
-        t_w: Base weight series.
-        clf_last_w: Weight assigned to the oldest observation.
-
-    Returns:
-        A decayed weight series.
-    """
-    clf_w = t_w.sort_index().cumsum()
-
-    if clf_last_w >= 0:
-        slope = (1. - clf_last_w) / clf_w.iloc[-1]
-    else:
-        slope = 1. / ((clf_last_w + 1) * clf_w.iloc[-1])
-
-    const = 1. - slope * clf_w.iloc[-1]
-    clf_w = const + slope * clf_w
-    clf_w[clf_w < 0] = 0
-
-    logger.debug("Applied time decay with slope {} and intercept {}.", slope, const)
-    return clf_w
-
-
 def build_partitioned_event_weights(
     events: pd.DataFrame,
     close: pd.Series,
 ) -> pd.DataFrame:
-    """Calculate event weights independently within each fixed partition.
+    """Normalize floored return attribution independently within each partition.
 
     Args:
         events: Labeled events containing unique intervals and inline partitions.
         close: Dollar-bar close prices indexed by bar end time.
 
     Returns:
-        Events with four partition-local weight columns appended.
+        Events with return-attribution and mean-one sample weights appended.
 
     Raises:
         ValueError: If required data is missing, duplicated, or cannot be weighted.
@@ -141,7 +90,10 @@ def build_partitioned_event_weights(
     if missing_events:
         raise ValueError(f"Events are missing columns: {sorted(missing_events)}")
 
-    weighted_input = events.drop(columns=WEIGHT_COLUMNS, errors="ignore").copy()
+    weighted_input = events.drop(
+        columns=[*WEIGHT_COLUMNS, "average_uniqueness_weight", "time_decay_weight"],
+        errors="ignore",
+    ).copy()
     weighted_input["event_start"] = pd.to_datetime(
         weighted_input["event_start"], utc=True, errors="coerce"
     )
@@ -185,11 +137,6 @@ def build_partitioned_event_weights(
             information_sets,
             information_sets.index,
         )
-        uniqueness = compute_average_uniqueness_weights(
-            information_sets,
-            concurrency,
-            information_sets.index,
-        )
         return_attribution = compute_return_attribution_weights(
             information_sets,
             concurrency,
@@ -202,15 +149,11 @@ def build_partitioned_event_weights(
                 f"{partition} return-attribution weights are all zero."
             )
         base_weight = return_attribution.clip(lower=positive_floor)
-        time_decay = apply_time_decay(base_weight, clf_last_w=0.50)
-        sample_weight = base_weight * time_decay
-        sample_weight *= len(sample_weight) / sample_weight.sum()
+        sample_weight = base_weight / base_weight.mean()
         weight_tables.append(
             pd.DataFrame(
                 {
-                    "average_uniqueness_weight": uniqueness,
                     "return_attribution_weight": return_attribution,
-                    "time_decay_weight": time_decay,
                     "sample_weight": sample_weight,
                 }
             ).rename_axis("event_start").reset_index()

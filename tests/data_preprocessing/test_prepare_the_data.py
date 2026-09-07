@@ -95,6 +95,11 @@ def test_invalid_feature_rows_are_recorded_dropped_and_reweighted():
             prepared["partition"].eq(partition), "sample_weight"
         ]
         assert partition_weights.sum() == pytest.approx(len(partition_weights))
+        attribution = prepared.loc[
+            prepared["partition"].eq(partition), "return_attribution_weight"
+        ]
+        base = attribution.clip(lower=attribution[attribution.gt(0)].min())
+        np.testing.assert_allclose(partition_weights, base / base.mean())
 
 
 def test_prepare_requires_complete_53_feature_schema():

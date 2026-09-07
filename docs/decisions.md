@@ -1,5 +1,18 @@
 # Decision Record
 
+## Event Weight Simplification
+
+Decision:
+
+- Follow the event-weight policy in [Requirements](requirements.md#21-data-preprocessing).
+
+Reason:
+
+- Purged cross-validation can train on events before and after validation, so a global recency preference does not
+  represent the information available at each validation time.
+- Average uniqueness was a diagnostic output unused by model fitting. Removing its calculation and persisted column
+  simplifies the schema without changing return attribution's concurrency adjustment.
+
 ## 1. Decision Log
 
 ### 1.1 Language

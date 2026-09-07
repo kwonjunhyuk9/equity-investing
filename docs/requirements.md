@@ -22,6 +22,9 @@
   event holdout boundary with an initial chronological 80/20 split, reuse that fixed boundary after upstream eligibility
   changes, learn labeling rules from development only, compute event weights within each partition, explore development
   only, and remove events with invalid model features before modeling while preserving the complete feature schema
+- Event Weights: Persist concurrency-adjusted return attribution and sample weights only. Within each partition,
+  floor zero attribution at the smallest positive attribution and normalize to mean one, without time decay or an
+  average-uniqueness multiplier. Reject partitions whose attribution weights are all zero.
 
 ### 2.2 Strategy Modeling
 
