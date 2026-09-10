@@ -6,6 +6,11 @@ from math import comb
 import numpy as np
 import pandas as pd
 
+from src.strategy_modeling.cross_validation import (
+    _embargo_train_indices,
+    _purge_train_indices,
+)
+
 
 def combinatorial_purged_cross_validation(
     samples_info_sets: pd.Series,
@@ -21,7 +26,9 @@ def combinatorial_purged_cross_validation(
         num_groups: Number of contiguous groups used to partition the sorted
             observations.
         num_test_groups: Number of groups used as the test set in each split.
-        pct_embargo: Fraction of all observations to embargo after each tested group.
+        pct_embargo: Finite fraction in [0, 1) of all observations to embargo,
+            rounded up, strictly after each contiguous test run's latest event
+            end. Adjacent test groups form one run.
 
     Returns:
         A frame with one row per test-group combination and split, group, and
@@ -41,14 +48,10 @@ def combinatorial_purged_cross_validation(
     if num_test_groups < 1 or num_test_groups >= num_groups:
         raise ValueError("num_test_groups must be in [1, num_groups)")
 
-    if pct_embargo < 0 or pct_embargo >= 1:
-        raise ValueError("pct_embargo must be in [0, 1)")
-
     groups = _get_groups(
         num_observations=samples_info_sets.shape[0],
         num_groups=num_groups
     )
-    embargo_size = int(np.ceil(samples_info_sets.shape[0] * pct_embargo))
     out = []
 
     for split_num, test_groups in enumerate(
@@ -69,11 +72,10 @@ def combinatorial_purged_cross_validation(
             test_indices=test_indices
         )
         train_indices = _embargo_train_indices(
+            samples_info_sets=samples_info_sets,
             train_indices=train_indices,
-            test_groups=test_groups,
-            groups=groups,
-            embargo_size=embargo_size,
-            num_observations=samples_info_sets.shape[0]
+            test_indices=test_indices,
+            pct_embargo=pct_embargo
         )
 
         out.append({
@@ -181,66 +183,6 @@ def _get_groups(num_observations, num_groups):
     groups.append(np.arange(start, num_observations))
 
     return groups
-
-
-def _purge_train_indices(samples_info_sets, train_indices, test_indices):
-    """Remove training observations whose information intervals overlap tests.
-
-    Args:
-        samples_info_sets: Validated event interval series sorted by observation start time.
-        train_indices: Candidate training positions before purging.
-        test_indices: Test positions for the current CPCV split.
-
-    Returns:
-        Training positions that do not overlap any test interval.
-    """
-    train_starts = samples_info_sets.index[train_indices]
-    train_ends = samples_info_sets.iloc[train_indices]
-    test_starts = samples_info_sets.index[test_indices]
-    test_ends = samples_info_sets.iloc[test_indices]
-
-    keep = np.ones(train_indices.shape[0], dtype=bool)
-
-    for test_start, test_end in zip(test_starts, test_ends):
-        overlap = (train_starts <= test_end) & (train_ends >= test_start)
-        keep &= ~overlap
-
-    return train_indices[keep]
-
-
-def _embargo_train_indices(
-        train_indices,
-        test_groups,
-        groups,
-        embargo_size,
-        num_observations
-):
-    """Remove candidate training observations inside post-test embargo windows.
-
-    Args:
-        train_indices: Candidate training positions after purging.
-        test_groups: Group numbers assigned to the test set in the current split.
-        groups: List of contiguous group position arrays.
-        embargo_size: Number of positional observations embargoed after each tested group.
-        num_observations: Total number of observations in the sample.
-
-    Returns:
-        Training positions with any observation in a post-test embargo window removed.
-    """
-    if embargo_size == 0:
-        return train_indices
-
-    embargoed_indices = []
-
-    for group in test_groups:
-        start = groups[group][-1] + 1
-        stop = min(start + embargo_size, num_observations)
-        embargoed_indices.extend(range(start, stop))
-
-    if not embargoed_indices:
-        return train_indices
-
-    return np.setdiff1d(train_indices, np.array(embargoed_indices), assume_unique=True)
 
 
 def _validate_splits(splits, num_groups):

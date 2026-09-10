@@ -28,7 +28,7 @@
 
 ### 2.2 Strategy Modeling
 
-- Ensemble Methods: Build bagging, random forest, AdaBoost, and gradient-boosting classifiers without scaling or
+- Ensemble Methods: Build boosting, bagging, and random-forest classifiers without scaling or
   imputing prepared features
 - Hyperparameter Tuning: Tune only the selected ensemble classifier with grid search and weighted purged cross-validation
 - Cross Validation: Reuse the fixed event partition and score development folds while purging overlapping labels and
@@ -61,10 +61,8 @@
 
 - Bagging: Train entropy-based decision trees on bootstrap samples and aggregate their predictions.
 - Random Forest: Train bootstrapped, feature-subsampled decision trees using entropy-based splits.
-- AdaBoost: Increase the weight of misclassified observations according to weighted classification error;
+- Boosting: Increase the weight of misclassified observations according to weighted classification error;
   use entropy to split each shallow decision-tree base estimator.
-- Gradient Boosting: Fit additive depth-3 regression trees to the negative gradient of log loss and tune learning-rate
-  shrinkage on development only.
 
 ### 3.3 Model Selection Evaluation Measures
 
@@ -75,6 +73,7 @@
 - Both Models: Report accuracy, precision, recall, F1, and log loss; visualize
   true-class-normalized confusion matrices and sample-weighted precision-recall and ROC curves on development OOF
   predictions, then evaluate the fixed final estimator on the chronological holdout once.
+- Display candidate comparisons in Boosting, Bagging, Random Forest order, independently of performance-based selection.
 
 ### 3.4 Investment Strategy Evaluation Measures
 

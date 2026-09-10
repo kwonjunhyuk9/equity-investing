@@ -191,7 +191,7 @@ def test_feature_importance_rejects_ignored_compatibility_options():
 
 @pytest.mark.parametrize(
     "candidate_name",
-    ["bagging", "random_forest", "adaboost", "gradient_boosting"],
+    ["boosting", "bagging", "random_forest"],
 )
 def test_selected_tree_ensembles_support_mdi(candidate_name):
     features, container = _make_test_data(random_state=18)

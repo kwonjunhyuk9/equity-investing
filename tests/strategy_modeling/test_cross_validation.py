@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.strategy_modeling.cross_validation import PurgedKFold, get_embargo_times
+from src.strategy_modeling.cross_validation import PurgedKFold
 
 
 def test_purged_kfold_exposes_configured_number_of_splits():
@@ -10,7 +10,6 @@ def test_purged_kfold_exposes_configured_number_of_splits():
     splitter = PurgedKFold(3, pd.Series(index, index=index), pct_embargo=0.1)
 
     assert len(list(splitter.split(features))) == 3
-    assert len(get_embargo_times(index, pct_embargo=0.5)) == len(index)
 
 
 def test_purged_kfold_rejects_too_few_splits():

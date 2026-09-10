@@ -13,7 +13,6 @@ from src.model_backtesting.backtest_statistics import ClassificationScores
 from src.strategy_modeling.ensemble_methods import (
     build_bagging_classifier,
     build_boosting_classifier,
-    build_gradient_boosting_classifier,
     build_random_forest_classifier,
 )
 from src.strategy_modeling.hyperparameter_tuning import MyPipeline
@@ -42,16 +41,21 @@ def build_candidate_classifiers(
         random_state: int = 42,
         n_jobs: int = 1,
 ) -> dict[str, MyPipeline]:
-    """Build the four tree-classifier families shared by primary and meta modeling.
+    """Build the three tree-classifier families shared by primary and meta modeling.
 
     Args:
         random_state: Seed used by every stochastic classifier.
         n_jobs: Parallel workers used by bagging and random forest.
 
     Returns:
-        Bagging, random forest, AdaBoost, and gradient-boosting pipelines.
+        Boosting, bagging, and random-forest pipelines in display order.
     """
     estimators = {
+        "boosting": build_boosting_classifier(
+            n_estimators=100,
+            learning_rate=0.10,
+            random_state=random_state,
+        ),
         "bagging": build_bagging_classifier(
             n_estimators=120,
             max_samples=0.80,
@@ -61,17 +65,6 @@ def build_candidate_classifiers(
         "random_forest": build_random_forest_classifier(
             n_estimators=120,
             n_jobs=n_jobs,
-            random_state=random_state,
-        ),
-        "adaboost": build_boosting_classifier(
-            n_estimators=100,
-            learning_rate=0.10,
-            random_state=random_state,
-        ),
-        "gradient_boosting": build_gradient_boosting_classifier(
-            n_estimators=100,
-            learning_rate=0.10,
-            max_depth=3,
             random_state=random_state,
         ),
     }
@@ -85,6 +78,10 @@ def build_candidate_classifiers(
 def candidate_parameter_grids() -> dict[str, list[dict]]:
     """Return compact tuning grids for the shared classifier families."""
     return {
+        "boosting": [
+            {"model__learning_rate": learning_rate}
+            for learning_rate in [0.03, 0.10, 0.30]
+        ],
         "bagging": [
             {"model__max_samples": max_samples}
             for max_samples in [0.60, 0.80, 1.00]
@@ -92,14 +89,6 @@ def candidate_parameter_grids() -> dict[str, list[dict]]:
         "random_forest": [
             {"model__max_features": max_features}
             for max_features in ["sqrt", 0.50, 1.00]
-        ],
-        "adaboost": [
-            {"model__learning_rate": learning_rate}
-            for learning_rate in [0.03, 0.10, 0.30]
-        ],
-        "gradient_boosting": [
-            {"model__learning_rate": learning_rate}
-            for learning_rate in [0.03, 0.10, 0.30]
         ],
     }
 

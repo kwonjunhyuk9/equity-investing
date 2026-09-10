@@ -98,12 +98,7 @@ def test_primary_model_frame_rejects_invalid_event_contracts():
 def test_candidate_classifiers_use_required_model_families():
     candidates = build_candidate_classifiers(random_state=42, n_jobs=1)
 
-    assert set(candidates) == {
-        "bagging",
-        "random_forest",
-        "adaboost",
-        "gradient_boosting",
-    }
+    assert list(candidates) == ["boosting", "bagging", "random_forest"]
     assert all(
         candidate.steps == [("model", candidate["model"])]
         for candidate in candidates.values()
@@ -113,19 +108,13 @@ def test_candidate_classifiers_use_required_model_families():
 def test_candidate_parameter_grids_cover_all_tree_families():
     grids = candidate_parameter_grids()
 
-    assert set(grids) == {
-        "bagging",
-        "random_forest",
-        "adaboost",
-        "gradient_boosting",
-    }
+    assert list(grids) == ["boosting", "bagging", "random_forest"]
     expected_learning_rates = [
         {"model__learning_rate": 0.03},
         {"model__learning_rate": 0.10},
         {"model__learning_rate": 0.30},
     ]
-    assert grids["adaboost"] == expected_learning_rates
-    assert grids["gradient_boosting"] == expected_learning_rates
+    assert grids["boosting"] == expected_learning_rates
 
 
 def test_candidate_classifiers_fit_with_weights_and_predict_probabilities():

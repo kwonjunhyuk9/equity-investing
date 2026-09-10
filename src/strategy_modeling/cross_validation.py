@@ -9,50 +9,60 @@ import pandas as pd
 from sklearn.model_selection import BaseCrossValidator
 
 
-def get_train_times(t1: pd.Series, test_times: pd.Series) -> pd.Series:
-    """Remove training labels that overlap with the test intervals.
+def _purge_train_indices(
+    samples_info_sets: pd.Series,
+    train_indices: np.ndarray,
+    test_indices: np.ndarray,
+) -> np.ndarray:
+    """Remove training intervals overlapping any test interval, including endpoints.
 
-    Args:
-        t1: Label end times indexed by observation start time.
-        test_times: Test interval end times indexed by interval start time.
-
-    Returns:
-        A filtered series of training label end times.
+    Inputs use positions in the same start-time-sorted event series. Neither
+    the series nor the index arrays are modified or reordered.
     """
-    trn = t1.copy(deep=True)
+    train_starts = samples_info_sets.index[train_indices]
+    train_ends = samples_info_sets.iloc[train_indices]
+    keep = np.ones(train_indices.shape[0], dtype=bool)
 
-    for i, j in test_times.items():
-        df0 = trn[(i <= trn.index) & (trn.index <= j)].index
-        df1 = trn[(i <= trn) & (trn <= j)].index
-        df2 = trn[(trn.index <= i) & (j <= trn)].index
+    for test_start, test_end in samples_info_sets.iloc[test_indices].items():
+        overlap = (train_starts <= test_end) & (train_ends >= test_start)
+        keep &= ~overlap
 
-        trn = trn.drop(df0.union(df1).union(df2))
-
-    return trn
+    return train_indices[keep]
 
 
-def get_embargo_times(times: pd.Index, pct_embargo: float) -> pd.Series:
-    """Apply an embargo window after each observation time.
+def _embargo_train_indices(
+    samples_info_sets: pd.Series,
+    train_indices: np.ndarray,
+    test_indices: np.ndarray,
+    pct_embargo: float,
+) -> np.ndarray:
+    """Exclude positions after each contiguous test run's latest event end.
 
-    Args:
-        times: Ordered observation times.
-        pct_embargo: Fraction of the sample length to embargo.
+    Event starts and test positions must be sorted. Each window starts strictly
+    after that run's latest end and spans ceil(N * pct_embargo) observations,
+    capped at the series end. N is the full event-series length, before purging.
+    Adjacent test positions form one run. Inputs are not modified or reordered.
 
-    Returns:
-        A series mapping each observation time to its embargo end time.
+    Raises:
+        ValueError: If pct_embargo is not finite or outside [0, 1).
     """
-    step = int(times.shape[0] * pct_embargo)
+    if not np.isfinite(pct_embargo) or not 0 <= pct_embargo < 1:
+        raise ValueError("pct_embargo must be finite and in [0, 1)")
 
-    if step == 0:
-        mbrg = pd.Series(times, index=times)
-    else:
-        mbrg = pd.Series(times[step:], index=times[:-step])
-        mbrg = pd.concat([
-            mbrg,
-            pd.Series(times[-1], index=times[-step:])
-        ])
+    embargo_size = int(np.ceil(len(samples_info_sets) * pct_embargo))
+    if embargo_size == 0 or test_indices.size == 0:
+        return train_indices
 
-    return mbrg
+    keep = np.ones(train_indices.shape[0], dtype=bool)
+    boundaries = np.flatnonzero(np.diff(test_indices) != 1) + 1
+    for test_run in np.split(test_indices, boundaries):
+        start = samples_info_sets.index.searchsorted(
+            samples_info_sets.iloc[test_run].max(), side="right"
+        )
+        stop = min(start + embargo_size, len(samples_info_sets))
+        keep &= ~((train_indices >= start) & (train_indices < stop))
+
+    return train_indices[keep]
 
 
 class PurgedKFold(BaseCrossValidator):
@@ -68,8 +78,9 @@ class PurgedKFold(BaseCrossValidator):
 
         Args:
             n_splits: Number of folds.
-            t1: Label end times indexed by observation time.
-            pct_embargo: Fraction of observations to embargo after each test fold.
+            t1: Label end times indexed by sorted observation start time.
+            pct_embargo: Finite fraction in [0, 1) of all observations to embargo,
+                rounded up, strictly after each test fold's latest label end.
 
         Returns:
             None.
@@ -122,13 +133,13 @@ class PurgedKFold(BaseCrossValidator):
             Train and test index arrays for each cross-validation fold.
 
         Raises:
-            ValueError: If ``X`` and ``t1`` do not share the same index.
+            ValueError: If ``X`` and ``t1`` do not share the same index or
+                pct_embargo is not finite or outside [0, 1).
         """
         if (X.index == self.t1.index).sum() != len(self.t1):
             raise ValueError("X and ThruDateValues must have the same index")
 
         indices = np.arange(X.shape[0])
-        mbrg = int(X.shape[0] * self.pct_embargo)
 
         test_starts = [
             (i[0], i[-1] + 1)
@@ -143,26 +154,16 @@ class PurgedKFold(BaseCrossValidator):
                 assume_unique=True,
             )
 
-            train_starts = self.t1.index[train_indices]
-            train_ends = self.t1.iloc[train_indices]
-            keep = np.ones(train_indices.shape[0], dtype=bool)
-            for test_start, test_end in self.t1.iloc[test_indices].items():
-                overlap = (train_starts <= test_end) & (train_ends >= test_start)
-                keep &= ~overlap
-            train_indices = train_indices[keep]
-
-            if mbrg:
-                embargo_start = self.t1.index.searchsorted(
-                    self.t1.iloc[test_indices].max(),
-                    side="right",
-                )
-                embargo_indices = indices[
-                    embargo_start:embargo_start + mbrg
-                ]
-                train_indices = np.setdiff1d(
-                    train_indices,
-                    embargo_indices,
-                    assume_unique=True,
-                )
+            train_indices = _purge_train_indices(
+                samples_info_sets=self.t1,
+                train_indices=train_indices,
+                test_indices=test_indices,
+            )
+            train_indices = _embargo_train_indices(
+                samples_info_sets=self.t1,
+                train_indices=train_indices,
+                test_indices=test_indices,
+                pct_embargo=self.pct_embargo,
+            )
 
             yield train_indices, test_indices
